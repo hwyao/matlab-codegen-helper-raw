@@ -24,14 +24,15 @@ function codegenRun(functionName,parameterCell,codegenVararg,option)
 %
     arguments
         functionName(1,:) char
-        parameterCell(1,:) cell
+        parameterCell(1,:) cell {mustBeParameterCell(parameterCell)}
         codegenVararg(1,:) cell
 
         % output configuration
         option.outputPath(1,:) char = ''          % the output mex folder destination. Left blank for current root folder, we strongly suggest to use full path.
         option.outputName(1,:) char = ''          % the output mex name. Left blank for default output (func - func_mex).
         option.outputComment(1,1) logical = true  % automatically generate a commend file alongside the codegen toolbox.
-        
+        option.globalCell(1,:) cell {mustBeGlobalCell(option.globalCell)} = {}       % tell the codegen use the global variable
+
         % automated execution configuration (tbd)
         option.enableModify(1,1) logical = false  % execute automated script to modify code before the comparison
         option.enableCheck(1,1) logical = true    % check if there are some code that is obviously incompitable with codegen
@@ -41,6 +42,9 @@ function codegenRun(functionName,parameterCell,codegenVararg,option)
         option.logLevel(1,:) char {mustBeMember(option.logLevel,{'INFO','DEBUG'})} = 'INFO' % the logging level in command window
     end
 
+    % prepare the variables
+    codegenVarargFinal = codegenVararg;
+
     % prepare argument parameter block
     nCell = numel(parameterCell);
     argCell = cell(1, 2*nCell);
@@ -49,8 +53,6 @@ function codegenRun(functionName,parameterCell,codegenVararg,option)
         argCell{iCurrent} = '-args';
         argCell{iCurrent + 1} = parameterCell{iCell};
     end
-
-    % prepare codegen named argument
     if ~(isempty(option.outputPath) && isempty(option.outputName))
         if ismember({'-o'},codegenVararg)
             error("Either use -o in codegenVararg, or use outputPath and outputName as non-empty value!")
@@ -69,7 +71,13 @@ function codegenRun(functionName,parameterCell,codegenVararg,option)
         end
         
         outputPathValue = [option.outputPath,option.outputName];
-        codegenVararg = [codegenVararg,{'-o',outputPathValue}];
+        codegenVarargFinal = [codegenVarargFinal,{'-o',outputPathValue}];
+    end
+
+    % prepare global parameter block
+    if ~isempty(option.globalCell)
+        option.globalCell = {'-global',option.globalCell};
+        codegenVarargFinal = [codegenVarargFinal, option.globalCell];
     end
 
     if option.enableModify == true %tbd
@@ -79,7 +87,7 @@ function codegenRun(functionName,parameterCell,codegenVararg,option)
     end
 
     % generate mex file
-    codegen(functionName,argCell{:},codegenVararg{:});
+    codegen(functionName,argCell{:},codegenVarargFinal{:});
 
     % generate comment for mex file
     if option.outputComment == true
@@ -101,3 +109,45 @@ function codegenRun(functionName,parameterCell,codegenVararg,option)
     end
 end
 
+function mustBeParameterCell(parameterCell)
+    mustBeA(parameterCell,'cell')
+    for iCell = 1:numel(parameterCell)
+        try
+            mustBeA(parameterCell{iCell},'cell')
+        catch ME
+            msg = [ME.message, newline, newline, ...
+                   'Hint: Each element of the parameterCell must be also a cell demonstrating all parameters.', newline, ...
+                   'e.g {{1,2},{int(1),int(2)}}', newline, ...
+                   'Element number ', num2str(iCell), ' cannot satisfy.'];
+            causeException = MException('MATLAB:codegenRun:mustBeParameterCell',msg);
+            throw(causeException)
+        end
+    end
+end
+
+function mustBeGlobalCell(globalCell)
+    mustBeA(globalCell,'cell')
+    nCell = numel(globalCell);
+    try
+        mustBeInteger(nCell/2);
+    catch ME
+        msg = [newline,...
+               'The length of the globalCell must be even.', newline,...
+               'Current length ', num2str(nCell), ' cannot satisfy.'];
+        causeException = MException('MATLAB:codegenRun:mustBeGlobalCell',msg);
+        throw(causeException)
+    end
+    for iCell = 1:(nCell/2)
+        iCellUse = 2 * iCell - 1;
+        try
+            mustBeA(globalCell{iCellUse},{'char','string'})
+        catch ME
+            msg = [ME.message, newline, newline, ...
+                'Hint: The input should be repeated combination of text and value.', newline, ...
+                'e.g {"a",1,''b'',3}', newline, ...
+                'Element number ', num2str(iCellUse), ' cannot satisfy.'];
+            causeException = MException('MATLAB:codegenRun:mustBeParameterCell',msg);
+            throw(causeException)
+        end
+    end
+end
